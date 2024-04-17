@@ -1,6 +1,7 @@
 use leptos::*;
 use leptos_meta::*;
 use leptos_router::*;
+use crate::model::conversation::Message;
 
 #[component]
 pub fn App() -> impl IntoView {
@@ -15,11 +16,34 @@ pub fn App() -> impl IntoView {
             user: true,
         };
         set_conversation.update(move |c| {
-            c.message.push(user_message);
+            c.messages.push(user_message);
         });
+
+        converse(cx, conversation.get())
     });
 
-    view! {
+    create_effect(cx, move |_| {
+        if let Some(_) = send.input().get() {
+            let model_message = Message {
+                text: String::from("..."),
+                user: false,
+            };
+
+            set_conversation.update(move |c| {
+                c.messages.push(model_message);
+            });
+        }
+    });
+
+    create_effect(cx, move |_| {
+        if let Some(Ok(response)) = send.value().get() {
+            set_conversation.update(move |c| {
+                c.messages.last_mut().unwrap().text = response;
+            });
+        }
+    });
+
+    view! { cx,
         // injects a stylesheet into the document <head>
         // id=leptos means cargo-leptos will hot-reload this stylesheet
         <Stylesheet id="leptos" href="/pkg/rust-chatbox.css"/>
