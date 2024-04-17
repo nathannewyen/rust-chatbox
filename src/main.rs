@@ -1,3 +1,5 @@
+use cfg_if::cfg_if;
+
 #[cfg(feature = "ssr")]
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -11,26 +13,57 @@ async fn main() -> std::io::Result<()> {
     let addr = conf.leptos_options.site_addr;
     // Generate the list of routes in your Leptos App
     let routes = generate_route_list(App);
-    println!("listening on http://{}", &addr);
 
+    #[get("/style.css")]
+    async fn css() -> impl Responder {
+        actix_files::NamedFile::open_async("./style/output.css").await
+    }
+
+    let model = web::Data::new(get_language_model());
     HttpServer::new(move || {
         let leptos_options = &conf.leptos_options;
         let site_root = &leptos_options.site_root;
 
         App::new()
-            // serve JS/WASM/CSS from `pkg`
-            .service(Files::new("/pkg", format!("{site_root}/pkg")))
-            // serve other assets from the `assets` directory
-            .service(Files::new("/assets", site_root))
-            // serve the favicon from /favicon.ico
-            .service(favicon)
-            .leptos_routes(leptos_options.to_owned(), routes.to_owned(), App)
-            .app_data(web::Data::new(leptos_options.to_owned()))
+            .app_data(model.clone())
+            .service(css)
+            .route("/api/{tail:.*}", leptos_actix::handle_server_fns())
+            .leptos_routes(
+                leptos_options.to_owned(),
+                routes.to_owned(),
+                |cx| view! { cx, <App /> },
+            )
+            .service(Files::new("/", site_root))z
         //.wrap(middleware::Compress::default())
     })
     .bind(&addr)?
     .run()
     .await
+}
+
+cfg_if! {
+    if #[cfg(feature = "ssr")] {
+        use llm::models::Llama;
+        use actix_web::web::*;
+        use std::env;
+        use dotenv::dotenv;
+
+        fn get_language_model() -< Llama {
+            use std:;path:PathBuf;
+            dotenv().ok();
+            let model_path = env::var("LLM_MODEL_PATH").expect("LLM_MODEL_PATH must be set");
+
+            llm::load::<Llama>(
+                &PathBuf::from(model_path),
+                llm::TokenizerSource::Embedded,
+                Default::default(),
+                llm::load_progress_callback_stdout,
+            )
+            .unwrap_or_else(|err| {
+                panic!("Failed to load model from {model_path:?}: {err}");
+            })
+        }
+    }
 }
 
 #[cfg(feature = "ssr")]
